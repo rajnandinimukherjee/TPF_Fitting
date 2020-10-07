@@ -8,12 +8,13 @@ tpf_data = np.loadtxt(tpf_file, usecols=(0,1,2,3))
 
 t_init = int(tpf_data[0,0])
 t_fin = int(tpf_data[tpf_data.shape[0]-1,0])
-T = (t_fin-t_init)+1
+T = int(t_fin)+1
 
 #print(t_init,t_fin)
 
 D = 18 # number of data points for each timeslice
 
+# 'r' stands for raw
 tpf_r = np.zeros(shape=(T,D))
 tpf_r_avg = np.zeros(T)
 
@@ -35,7 +36,7 @@ def eff_m(T,dat):
         #print(eff_m[t])
     return eff_m
 
-T_arr = np.array(list(range(T)))
+T_arr = np.arange(T)
 eff_mass = eff_m(T,tpf_r_avg)
 
 #print(eff_mass)
@@ -47,6 +48,33 @@ plt.xlabel("T")
 plt.ylabel("eff_m")
 
 #==================================================
+
+# fold data set and create COV matrix over folded set
+
+T_2 = int(T/2)
+
+# create folded data set
+# 'f' stands for folded
+tpf_f = np.zeros(shape=(T_2, D))
+tpf_f[0,:] = tpf_r[0,:]
+tpf_f_avg = np.zeros(T_2)
+tpf_f_avg[0] = tpf_r_avg[0]
+
+for t in range(1,T_2):
+    tpf_f[t,:] = (tpf_r[t,:]+tpf_r[T-t,:])/2
+    tpf_f_avg[t] = tpf_f[t,:].mean()
+    #print(t,"\t", tpf_r_avg[t], "\t", tpf_f_avg[t])
+    
+# create COV over folded data
+COV = np.zeros(shape=(T_2,T_2))
+
+for t1 in range(T_2):
+    for t2 in range(T_2):
+        COV[t1,t2] = ((tpf_f[t1,:]-tpf_f_avg[t1]).dot(tpf_f[t2,:]-tpf_f_avg[t2]))/(D*(D-1))
+
+np.savetxt("COV.csv", COV, delimiter="\t")
+
+#=================================================
     
 # correlated fit
 
@@ -55,44 +83,13 @@ fit_end = 21
 fit_interval = fit_end-fit_start
 print("fit range: ", fit_start, " - ", fit_end-1)
 
-
-# fold over set
-T_2 = int(T/2)
-#print(T)
-
-
-#folding data over fit interval
-tpf_f_fit = np.zeros(fit_interval)
-#err_f = np.zeros(T_2)
-#err_f[0] = err[0]
-
-# also fold over data set - for values 1 - 63 combine data
-data_f = np.zeros(shape=(fit_interval,2*D))
-
-for i in range (fit_interval):
-    tpf_f_fit[i] = (tpf_r_avg[i+fit_start]+tpf_r_avg[T-(i+fit_start)])/2
-    data_f[i,:] = np.append(tpf_r[i+fit_start,:], tpf_r[i+fit_start,:])
-    #err_f[i] = err[i]+err[T-i]
-    #print(tpf_f[i],err_f[i])
-
-#==================================================
-
-# calculating covariance matrix COV only in fit region
-
-COV = np.zeros(shape=(fit_interval,fit_interval))
-
-for t1 in range(fit_interval):
-    for t2 in range(fit_interval):
-        COV[t1,t2] = ((data_f[t1,:]-tpf_r_avg[t1+fit_start]).dot((data_f[t2,:]-tpf_r_avg[t2+fit_start])))/(2*D*((2*D)-1))
-        
-np.savetxt("COV.csv", COV, delimiter="\t")
-
-
 # truncating data set from both ends for fitting
 T_fit_range = T_arr[fit_start:fit_end]
+tpf_f_fit = tpf_f_avg[fit_start:fit_end]
+COV_trunc = COV[fit_start:fit_end,fit_start:fit_end]
 
 # Cholesky decomposition
-L_inv = np.linalg.cholesky(COV)
+L_inv = np.linalg.cholesky(COV_trunc)
 L = np.linalg.inv(L_inv)
 
 # fit ansatz
@@ -108,7 +105,7 @@ def LD(params):
     return L.dot(diff(params))
 
 #guess parameters:
-t_guess = int((fit_end-fit_start)/2)
+t_guess = int(fit_interval/2)
 b0 = np.abs(np.log(tpf_f_fit[t_guess-1]/tpf_f_fit[t_guess]))
 a0 = tpf_f_fit[t_guess]/np.exp(-b0*t_guess)
 #print([a0,b0])

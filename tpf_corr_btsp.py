@@ -31,15 +31,15 @@ for t in range (T):
 K = 10000 # number of bootstrap samples
 
 #generate bootstrap samples
-btsp_samp = np.zeros(shape=(T,K,D))
-samp_avg = np.zeros(shape=(T,K))
+btsp_samp = np.zeros(shape=(K,T,D))
+samp_avg = np.zeros(shape=(K,T))
 tpf_btsp = np.zeros(T)
 
 for t in range(T):
     for k in range(K):
-        btsp_samp[t,k,:D] = random.choices(tpf_r[t,:D],k=D)
-        samp_avg[t,k] = btsp_samp[t,k,:].mean()
-    tpf_btsp[t] = btsp_samp[t,:,:].mean()
+        btsp_samp[k,t,:D] = random.choices(tpf_r[t,:D],k=D)
+        samp_avg[k,t] = btsp_samp[k,t,:].mean()
+    tpf_btsp[t] = btsp_samp[:,t,:].mean()
 
 #print(tpf_btsp)
 
@@ -67,17 +67,32 @@ plt.ylabel("eff_m")
     
 #==================================================
 
-# calculating covariance matrix COV for each bootstrap sample
+# fold over data set for each bootstrap sample
+T_2 = int(T/2)
 
-COV = np.zeros(shape=(K,T,T))
+# create folded data set
+# 'f' stands for folded
+tpf_f = np.zeros(shape=(K,T_2, D))
+tpf_f_avg = np.zeros(shape=(K,T_2))
 
 for k in range(K):
-    for t1 in range(T):
-        for t2 in range(T):
-            COV[k,t1,t2] = ((btsp_samp[t1,k,:D]-tpf_btsp[t1]).dot((btsp_samp[t2,k,:D]-tpf_btsp[t2])))/(D*(D-1))
-        
-#np.savetxt("COV.csv", COV, delimiter="\t")
+    tpf_f[k,0,:] = btsp_samp[k,0,:]
+    tpf_f_avg[k,0] = samp_avg[k,0]
+    for t in range(1,T_2):
+        tpf_f[k,t,:] = (btsp_samp[k,t,:]+btsp_samp[k,T-t,:])/2
+        tpf_f_avg[k,t] = tpf_f[k,t,:].mean()
 
+#==================================================
+
+# calculating covariance matrix COV for each bootstrap sample
+
+COV = np.zeros(shape=(K,T_2,T_2))
+
+for k in range(K):
+    for t1 in range(T_2):
+        for t2 in range(T_2):
+            COV[k,t1,t2] = ((tpf_f[k,t1,:]-tpf_f_avg[k,t1]).dot(tpf_f[k,t2,:]-tpf_f_avg[k,t2]))/(D*(D-1))
+        
 #==================================================
     
 # correlated fit on each bootstrap sample
@@ -86,6 +101,7 @@ T_2 = int(T/2)
 
 fit_start = 7
 fit_end = 21
+fit_interval = fit_end-fit_start
 
 print("fit range: ", fit_start, " - ", fit_end-1)
 
@@ -94,20 +110,11 @@ T_fit_range = T_arr[fit_start:fit_end]
 COV_trunc = COV[:,fit_start:fit_end, fit_start:fit_end]
 
 params_dist = np.zeros(shape=(K,2))
+tpf_f_fit = np.zeros(fit_interval)
 
 for k in range(K):
-    
-    # fold over each bootstrap sample
-    tpf_f = np.zeros(T_2)
-    tpf_f[0] = samp_avg[0,k]
-    #err_f = np.zeros(T_2)
-    #err_f[0] = err[0]
-
-    for i in range (1,T_2):
-        tpf_f[i] = (samp_avg[i,k]+samp_avg[T-i,k])/2
         
-    tpf_f_fit = tpf_f[fit_start:fit_end]
-    
+    tpf_f_fit[:] = tpf_f_avg[k,fit_start:fit_end]
     
     # Cholesky decomposition
     L_inv = np.linalg.cholesky(COV_trunc[k,:,:])
@@ -135,8 +142,6 @@ for k in range(K):
 
     res = least_squares(LD, [a0,b0])
     params_dist[k,:] = res.x
-    #chi_sq = ((LD(res.x)).T).dot(LD(res.x))
-    #print(chi_sq)
     
 #====================================================
     
@@ -147,6 +152,7 @@ a = a_data.mean()
 a_bins = np.arange(min(a_data), max(a_data),(max(a_data)-min(a_data))/500)
 plt.hist(a_data, bins=a_bins, alpha=0.5)
 plt.axvline(a, color='k')
+plt.title("a")
 
 plt.figure()
 b_data = params_dist[:,1]
@@ -154,8 +160,9 @@ b = b_data.mean()
 b_bins = np.arange(b-0.05,b+0.05,0.1/500)
 plt.hist(b_data, bins=b_bins, alpha=0.5)
 plt.axvline(b, color='k')
+plt.title("b")
 
-print("a = ", a, "\nb = ", b)
+print("a = ", a, " +/- ", np.std(a_data), "\nb = ", b, " +/- ", np.std(b_data))
 
 plt.show()
 
